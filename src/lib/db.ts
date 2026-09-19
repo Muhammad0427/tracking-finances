@@ -3,7 +3,7 @@ import fs from "fs";
 import path from "path";
 import { DEFAULT_CATEGORIES } from "./categories";
 
-const DATA_DIR = path.join(process.cwd(), "data");
+const DATA_DIR = process.env.DATA_DIR ?? path.join(process.cwd(), "data");
 const DB_PATH = path.join(DATA_DIR, "finances.db");
 
 declare global {
@@ -11,8 +11,8 @@ declare global {
 }
 
 function createConnection(): Database.Database {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
+  if (!fs.existsSync(/* turbopackIgnore: true */ DATA_DIR)) {
+    fs.mkdirSync(/* turbopackIgnore: true */ DATA_DIR, { recursive: true });
   }
   const db = new Database(DB_PATH);
   db.pragma("journal_mode = WAL");
