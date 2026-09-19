@@ -7,16 +7,18 @@ export default async function TransactionsPage(props: PageProps<"/transactions">
   const categoryParam = typeof params.category === "string" ? params.category : undefined;
   const search = typeof params.q === "string" ? params.q : undefined;
 
-  const categories = listCategories();
   const categoryId = categoryParam ? Number(categoryParam) : undefined;
-  const months = getMonthsWithData();
 
-  const transactions = listTransactions({
-    month,
-    categoryId: categoryParam === "uncategorized" ? null : categoryId,
-    search,
-    limit: 500,
-  });
+  const [categories, months, transactions] = await Promise.all([
+    listCategories(),
+    getMonthsWithData(),
+    listTransactions({
+      month,
+      categoryId: categoryParam === "uncategorized" ? null : categoryId,
+      search,
+      limit: 500,
+    }),
+  ]);
 
   return (
     <div className="space-y-6">

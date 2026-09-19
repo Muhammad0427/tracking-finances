@@ -1,24 +1,29 @@
-import Database from "better-sqlite3";
+import { createClient, type Client, type ResultSet } from "@libsql/client";
 import fs from "fs";
 import path from "path";
 import { DEFAULT_CATEGORIES } from "./categories";
 
 const DATA_DIR = process.env.DATA_DIR ?? path.join(process.cwd(), "data");
-const DB_PATH = path.join(DATA_DIR, "finances.db");
 
 declare global {
-  var __financesDb: Database.Database | undefined;
+  var __financesDb: Client | undefined;
+  var __financesDbReady: Promise<void> | undefined;
 }
 
-function createConnection(): Database.Database {
+function createConnection(): Client {
+  const url = process.env.TURSO_DATABASE_URL;
+  if (url) {
+    return createClient({ url, authToken: process.env.TURSO_AUTH_TOKEN });
+  }
+
   if (!fs.existsSync(/* turbopackIgnore: true */ DATA_DIR)) {
     fs.mkdirSync(/* turbopackIgnore: true */ DATA_DIR, { recursive: true });
   }
-  const db = new Database(DB_PATH);
-  db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
+  return createClient({ url: `file:${path.join(DATA_DIR, "finances.db")}` });
+}
 
-  db.exec(`
+async function initSchema(db: Client): Promise<void> {
+  await db.executeMultiple(`
     CREATE TABLE IF NOT EXISTS categories (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
@@ -50,28 +55,36 @@ function createConnection(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_transactions_category ON transactions(category_id);
   `);
 
-  const categoryCount = db
-    .prepare("SELECT COUNT(*) as count FROM categories")
-    .get() as { count: number };
+  const result = await db.execute("SELECT COUNT(*) as count FROM categories");
+  const count = Number(result.rows[0].count);
 
-  if (categoryCount.count === 0) {
-    const insert = db.prepare(
-      "INSERT INTO categories (name, type, color, is_default) VALUES (?, ?, ?, 1)"
+  if (count === 0) {
+    await db.batch(
+      DEFAULT_CATEGORIES.map((cat) => ({
+        sql: "INSERT INTO categories (name, type, color, is_default) VALUES (?, ?, ?, 1)",
+        args: [cat.name, cat.type, cat.color],
+      })),
+      "write"
     );
-    const insertMany = db.transaction((cats: typeof DEFAULT_CATEGORIES) => {
-      for (const cat of cats) {
-        insert.run(cat.name, cat.type, cat.color);
-      }
-    });
-    insertMany(DEFAULT_CATEGORIES);
   }
-
-  return db;
 }
 
-export function getDb(): Database.Database {
+// libsql's Row is a Proxy-like object (array + named access), not a plain
+// object, so it can't be passed straight from a Server Component to a
+// Client Component (or safely spread/serialized). Convert to plain objects.
+export function toRows<T>(result: ResultSet): T[] {
+  return result.rows.map((row) => {
+    const obj: Record<string, unknown> = {};
+    for (const col of result.columns) obj[col] = row[col];
+    return obj as T;
+  });
+}
+
+export async function getDb(): Promise<Client> {
   if (!global.__financesDb) {
     global.__financesDb = createConnection();
+    global.__financesDbReady = initSchema(global.__financesDb);
   }
+  await global.__financesDbReady;
   return global.__financesDb;
 }

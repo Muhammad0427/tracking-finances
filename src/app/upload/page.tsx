@@ -2,8 +2,10 @@ import UploadForm from "@/components/UploadForm";
 import StatementRow from "@/components/StatementRow";
 import { listStatements } from "@/lib/queries";
 
-export default function UploadPage() {
-  const statements = listStatements();
+export const dynamic = "force-dynamic";
+
+export default async function UploadPage() {
+  const statements = await listStatements();
 
   return (
     <div className="mx-auto max-w-2xl space-y-8">

@@ -1,4 +1,4 @@
-import { getDb } from "./db";
+import { getDb, toRows } from "./db";
 
 function normalizeDescription(desc: string): string {
   return desc
@@ -29,15 +29,14 @@ interface RawTxRow {
 
 // Detects likely recurring subscriptions/charges: same merchant, similar amount,
 // appearing in two or more distinct months.
-export function detectRecurringCharges(): RecurringCharge[] {
-  const db = getDb();
-  const rows = db
-    .prepare(
-      `SELECT t.date, t.description, t.amount, c.name as category_name, c.color as category_color
-       FROM transactions t LEFT JOIN categories c ON c.id = t.category_id
-       WHERE t.amount < 0`
-    )
-    .all() as RawTxRow[];
+export async function detectRecurringCharges(): Promise<RecurringCharge[]> {
+  const db = await getDb();
+  const result = await db.execute(
+    `SELECT t.date, t.description, t.amount, c.name as category_name, c.color as category_color
+     FROM transactions t LEFT JOIN categories c ON c.id = t.category_id
+     WHERE t.amount < 0`
+  );
+  const rows = toRows<RawTxRow>(result);
 
   const groups = new Map<string, RawTxRow[]>();
   for (const row of rows) {
@@ -79,23 +78,19 @@ export interface DiscretionaryInsight {
   topDiscretionaryCategories: { name: string; color: string; total: number }[];
 }
 
-export function getDiscretionaryInsight(month?: string): DiscretionaryInsight {
-  const db = getDb();
-  const where = month ? "WHERE t.date LIKE @month AND t.amount < 0" : "WHERE t.amount < 0";
-  const rows = db
-    .prepare(
-      `SELECT COALESCE(c.name,'Uncategorized') as name, COALESCE(c.color,'#9ca3af') as color,
-              COALESCE(c.type,'discretionary') as type, SUM(-t.amount) as total
-       FROM transactions t LEFT JOIN categories c ON c.id = t.category_id
-       ${where}
-       GROUP BY c.id`
-    )
-    .all(month ? { month: `${month}%` } : {}) as {
-    name: string;
-    color: string;
-    type: string;
-    total: number;
-  }[];
+export async function getDiscretionaryInsight(month?: string): Promise<DiscretionaryInsight> {
+  const db = await getDb();
+  const where = month ? "WHERE t.date LIKE ? AND t.amount < 0" : "WHERE t.amount < 0";
+  const args = month ? [`${month}%`] : [];
+  const result = await db.execute({
+    sql: `SELECT COALESCE(c.name,'Uncategorized') as name, COALESCE(c.color,'#9ca3af') as color,
+                 COALESCE(c.type,'discretionary') as type, SUM(-t.amount) as total
+          FROM transactions t LEFT JOIN categories c ON c.id = t.category_id
+          ${where}
+          GROUP BY c.id`,
+    args,
+  });
+  const rows = toRows<{ name: string; color: string; type: string; total: number }>(result);
 
   const totalExpenses = rows.reduce((sum, r) => sum + r.total, 0);
   const discretionaryRows = rows.filter((r) => r.type === "discretionary");
@@ -125,26 +120,33 @@ export interface CategorySpike {
 
 // Flags categories where the latest month's spend is significantly above
 // the trailing average for that category (a signal of unusual/unnecessary spending).
-export function detectSpendingSpikes(): CategorySpike[] {
-  const db = getDb();
-  const months = db
-    .prepare(`SELECT DISTINCT substr(date,1,7) as month FROM transactions ORDER BY month ASC`)
-    .all() as { month: string }[];
+export async function detectSpendingSpikes(): Promise<CategorySpike[]> {
+  const db = await getDb();
+  const monthsResult = await db.execute(
+    `SELECT DISTINCT substr(date,1,7) as month FROM transactions ORDER BY month ASC`
+  );
+  const months = toRows<{ month: string }>(monthsResult);
   if (months.length < 2) return [];
 
   const latestMonth = months[months.length - 1].month;
   const priorMonths = months.slice(0, -1).map((m) => m.month);
 
-  const rows = db
-    .prepare(
-      `SELECT COALESCE(c.id, -1) as category_id, COALESCE(c.name,'Uncategorized') as name,
-              COALESCE(c.color,'#9ca3af') as color, COALESCE(c.type,'discretionary') as type,
-              substr(t.date,1,7) as month, SUM(-t.amount) as total
-       FROM transactions t LEFT JOIN categories c ON c.id = t.category_id
-       WHERE t.amount < 0
-       GROUP BY category_id, month`
-    )
-    .all() as { category_id: number; name: string; color: string; type: string; month: string; total: number }[];
+  const result = await db.execute(
+    `SELECT COALESCE(c.id, -1) as category_id, COALESCE(c.name,'Uncategorized') as name,
+            COALESCE(c.color,'#9ca3af') as color, COALESCE(c.type,'discretionary') as type,
+            substr(t.date,1,7) as month, SUM(-t.amount) as total
+     FROM transactions t LEFT JOIN categories c ON c.id = t.category_id
+     WHERE t.amount < 0
+     GROUP BY category_id, month`
+  );
+  const rows = toRows<{
+    category_id: number;
+    name: string;
+    color: string;
+    type: string;
+    month: string;
+    total: number;
+  }>(result);
 
   // Only essential/discretionary spending is "unnecessary spending" territory;
   // a jump in giving or savings is not a problem to flag here.

@@ -1,4 +1,4 @@
-import { getDb } from "./db";
+import { getDb, toRows } from "./db";
 
 export interface Category {
   id: number;
@@ -22,14 +22,16 @@ export interface Transaction {
   statement_id: number | null;
 }
 
-export function listCategories(): Category[] {
-  const db = getDb();
-  return db.prepare("SELECT * FROM categories ORDER BY type, name").all() as Category[];
+export async function listCategories(): Promise<Category[]> {
+  const db = await getDb();
+  const result = await db.execute("SELECT * FROM categories ORDER BY type, name");
+  return toRows<Category>(result);
 }
 
-export function getCategoryByName(name: string): Category | undefined {
-  const db = getDb();
-  return db.prepare("SELECT * FROM categories WHERE name = ?").get(name) as Category | undefined;
+export async function getCategoryByName(name: string): Promise<Category | undefined> {
+  const db = await getDb();
+  const result = await db.execute({ sql: "SELECT * FROM categories WHERE name = ?", args: [name] });
+  return toRows<Category>(result)[0];
 }
 
 export interface TransactionFilters {
@@ -39,22 +41,24 @@ export interface TransactionFilters {
   limit?: number;
 }
 
-export function listTransactions(filters: TransactionFilters = {}): Transaction[] {
-  const db = getDb();
+export async function listTransactions(filters: TransactionFilters = {}): Promise<Transaction[]> {
+  const db = await getDb();
   const clauses: string[] = [];
-  const params: Record<string, unknown> = {};
+  const args: (string | number)[] = [];
 
-  if (filters.categoryId != null) {
-    clauses.push("t.category_id = @categoryId");
-    params.categoryId = filters.categoryId;
+  if (filters.categoryId === null) {
+    clauses.push("t.category_id IS NULL");
+  } else if (filters.categoryId != null) {
+    clauses.push("t.category_id = ?");
+    args.push(filters.categoryId);
   }
   if (filters.month) {
-    clauses.push("t.date LIKE @month");
-    params.month = `${filters.month}%`;
+    clauses.push("t.date LIKE ?");
+    args.push(`${filters.month}%`);
   }
   if (filters.search) {
-    clauses.push("LOWER(t.description) LIKE @search");
-    params.search = `%${filters.search.toLowerCase()}%`;
+    clauses.push("LOWER(t.description) LIKE ?");
+    args.push(`%${filters.search.toLowerCase()}%`);
   }
 
   const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
@@ -71,17 +75,16 @@ export function listTransactions(filters: TransactionFilters = {}): Transaction[
     ${limit}
   `;
 
-  return db.prepare(sql).all(params) as Transaction[];
+  const result = await db.execute({ sql, args });
+  return toRows<Transaction>(result);
 }
 
-export function getMonthsWithData(): string[] {
-  const db = getDb();
-  const rows = db
-    .prepare(
-      `SELECT DISTINCT substr(date, 1, 7) as month FROM transactions ORDER BY month DESC`
-    )
-    .all() as { month: string }[];
-  return rows.map((r) => r.month);
+export async function getMonthsWithData(): Promise<string[]> {
+  const db = await getDb();
+  const result = await db.execute(
+    `SELECT DISTINCT substr(date, 1, 7) as month FROM transactions ORDER BY month DESC`
+  );
+  return toRows<{ month: string }>(result).map((r) => r.month);
 }
 
 export interface CategoryTotal {
@@ -93,9 +96,9 @@ export interface CategoryTotal {
   count: number;
 }
 
-export function getCategoryTotals(month?: string): CategoryTotal[] {
-  const db = getDb();
-  const where = month ? "WHERE t.date LIKE @month AND t.amount < 0" : "WHERE t.amount < 0";
+export async function getCategoryTotals(month?: string): Promise<CategoryTotal[]> {
+  const db = await getDb();
+  const where = month ? "WHERE t.date LIKE ? AND t.amount < 0" : "WHERE t.amount < 0";
   const sql = `
     SELECT
       c.id as category_id,
@@ -110,8 +113,9 @@ export function getCategoryTotals(month?: string): CategoryTotal[] {
     GROUP BY c.id
     ORDER BY total DESC
   `;
-  const params = month ? { month: `${month}%` } : {};
-  return db.prepare(sql).all(params) as CategoryTotal[];
+  const args = month ? [`${month}%`] : [];
+  const result = await db.execute({ sql, args });
+  return toRows<CategoryTotal>(result);
 }
 
 export interface MonthlySummary {
@@ -121,8 +125,8 @@ export interface MonthlySummary {
   net: number;
 }
 
-export function getMonthlySummaries(): MonthlySummary[] {
-  const db = getDb();
+export async function getMonthlySummaries(): Promise<MonthlySummary[]> {
+  const db = await getDb();
   const sql = `
     SELECT
       substr(date, 1, 7) as month,
@@ -132,21 +136,33 @@ export function getMonthlySummaries(): MonthlySummary[] {
     GROUP BY month
     ORDER BY month ASC
   `;
-  const rows = db.prepare(sql).all() as { month: string; income: number; expenses: number }[];
+  const result = await db.execute(sql);
+  const rows = toRows<{ month: string; income: number; expenses: number }>(result);
   return rows.map((r) => ({ ...r, net: r.income - r.expenses }));
 }
 
-export function getMonthlyCategoryTrend(categoryId: number | null): { month: string; total: number }[] {
-  const db = getDb();
-  const sql = categoryId
-    ? `SELECT substr(date,1,7) as month, SUM(-amount) as total FROM transactions WHERE category_id = ? AND amount < 0 GROUP BY month ORDER BY month ASC`
-    : `SELECT substr(date,1,7) as month, SUM(-amount) as total FROM transactions WHERE category_id IS NULL AND amount < 0 GROUP BY month ORDER BY month ASC`;
-  return db.prepare(sql).all(categoryId ?? undefined) as { month: string; total: number }[];
+export async function getMonthlyCategoryTrend(
+  categoryId: number | null
+): Promise<{ month: string; total: number }[]> {
+  const db = await getDb();
+  const sql =
+    categoryId != null
+      ? `SELECT substr(date,1,7) as month, SUM(-amount) as total FROM transactions WHERE category_id = ? AND amount < 0 GROUP BY month ORDER BY month ASC`
+      : `SELECT substr(date,1,7) as month, SUM(-amount) as total FROM transactions WHERE category_id IS NULL AND amount < 0 GROUP BY month ORDER BY month ASC`;
+  const args = categoryId != null ? [categoryId] : [];
+  const result = await db.execute({ sql, args });
+  return toRows<{ month: string; total: number }>(result);
 }
 
-export function listStatements() {
-  const db = getDb();
-  return db
-    .prepare("SELECT * FROM statements ORDER BY uploaded_at DESC")
-    .all() as { id: number; filename: string; uploaded_at: string; transaction_count: number }[];
+export interface Statement {
+  id: number;
+  filename: string;
+  uploaded_at: string;
+  transaction_count: number;
+}
+
+export async function listStatements(): Promise<Statement[]> {
+  const db = await getDb();
+  const result = await db.execute("SELECT * FROM statements ORDER BY uploaded_at DESC");
+  return toRows<Statement>(result);
 }

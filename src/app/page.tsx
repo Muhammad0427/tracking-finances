@@ -12,15 +12,17 @@ import { formatCurrency, formatMonthLabel, formatPercent } from "@/lib/format";
 
 export default async function DashboardPage(props: PageProps<"/">) {
   const params = await props.searchParams;
-  const months = getMonthsWithData();
+  const months = await getMonthsWithData();
   const requestedMonth = typeof params.month === "string" ? params.month : undefined;
   const selectedMonth = requestedMonth && months.includes(requestedMonth) ? requestedMonth : undefined;
 
-  const categoryTotals = getCategoryTotals(selectedMonth);
-  const monthlySummaries = getMonthlySummaries();
-  const discretionary = getDiscretionaryInsight(selectedMonth);
-  const recurring = detectRecurringCharges();
-  const spikes = detectSpendingSpikes();
+  const [categoryTotals, monthlySummaries, discretionary, recurring, spikes] = await Promise.all([
+    getCategoryTotals(selectedMonth),
+    getMonthlySummaries(),
+    getDiscretionaryInsight(selectedMonth),
+    detectRecurringCharges(),
+    detectSpendingSpikes(),
+  ]);
 
   const currentSummary = selectedMonth
     ? monthlySummaries.find((m) => m.month === selectedMonth)

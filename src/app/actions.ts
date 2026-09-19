@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { getDb } from "@/lib/db";
+import { getDb, toRows } from "@/lib/db";
 import { parseStatementCsv } from "@/lib/parseStatement";
 import { guessCategory } from "@/lib/categories";
 
@@ -34,43 +34,32 @@ export async function uploadStatement(formData: FormData): Promise<UploadResult>
     };
   }
 
-  const db = getDb();
+  const db = await getDb();
 
+  const categoriesResult = await db.execute("SELECT id, name FROM categories");
+  const categories = toRows<{ id: number; name: string }>(categoriesResult);
   const categoryIdByName = new Map<string, number>();
-  const categories = db.prepare("SELECT id, name FROM categories").all() as {
-    id: number;
-    name: string;
-  }[];
   for (const c of categories) categoryIdByName.set(c.name, c.id);
   const otherId = categoryIdByName.get("Other") ?? null;
 
-  const insertStatement = db.prepare(
-    "INSERT INTO statements (filename, uploaded_at, transaction_count) VALUES (?, datetime('now'), ?)"
-  );
-  const insertTx = db.prepare(
-    `INSERT INTO transactions (date, description, amount, category_id, statement_id, account)
-     VALUES (@date, @description, @amount, @categoryId, @statementId, @account)`
-  );
+  const stmtInfo = await db.execute({
+    sql: "INSERT INTO statements (filename, uploaded_at, transaction_count) VALUES (?, datetime('now'), ?)",
+    args: [file.name, transactions.length],
+  });
+  const statementId = Number(stmtInfo.lastInsertRowid);
 
-  const runImport = db.transaction(() => {
-    const stmtInfo = insertStatement.run(file.name, transactions.length);
-    const statementId = stmtInfo.lastInsertRowid as number;
-
-    for (const tx of transactions) {
+  await db.batch(
+    transactions.map((tx) => {
       const guessedName = guessCategory(tx.description);
       const categoryId = categoryIdByName.get(guessedName) ?? otherId;
-      insertTx.run({
-        date: tx.date,
-        description: tx.description,
-        amount: tx.amount,
-        categoryId,
-        statementId,
-        account: file.name,
-      });
-    }
-  });
-
-  runImport();
+      return {
+        sql: `INSERT INTO transactions (date, description, amount, category_id, statement_id, account)
+              VALUES (?, ?, ?, ?, ?, ?)`,
+        args: [tx.date, tx.description, tx.amount, categoryId, statementId, file.name],
+      };
+    }),
+    "write"
+  );
 
   revalidatePath("/");
   revalidatePath("/transactions");
@@ -87,15 +76,18 @@ export async function uploadStatement(formData: FormData): Promise<UploadResult>
 }
 
 export async function updateTransactionCategory(transactionId: number, categoryId: number | null) {
-  const db = getDb();
-  db.prepare("UPDATE transactions SET category_id = ? WHERE id = ?").run(categoryId, transactionId);
+  const db = await getDb();
+  await db.execute({
+    sql: "UPDATE transactions SET category_id = ? WHERE id = ?",
+    args: [categoryId, transactionId],
+  });
   revalidatePath("/");
   revalidatePath("/transactions");
 }
 
 export async function deleteTransaction(transactionId: number) {
-  const db = getDb();
-  db.prepare("DELETE FROM transactions WHERE id = ?").run(transactionId);
+  const db = await getDb();
+  await db.execute({ sql: "DELETE FROM transactions WHERE id = ?", args: [transactionId] });
   revalidatePath("/");
   revalidatePath("/transactions");
 }
@@ -115,15 +107,16 @@ export async function addCategory(formData: FormData): Promise<CategoryFormResul
   if (!name) return { success: false, message: "Category name is required." };
   if (!VALID_TYPES.includes(type)) return { success: false, message: "Invalid category type." };
 
-  const db = getDb();
-  const existing = db.prepare("SELECT id FROM categories WHERE name = ?").get(name);
-  if (existing) return { success: false, message: `A category named "${name}" already exists.` };
+  const db = await getDb();
+  const existing = await db.execute({ sql: "SELECT id FROM categories WHERE name = ?", args: [name] });
+  if (existing.rows.length > 0) {
+    return { success: false, message: `A category named "${name}" already exists.` };
+  }
 
-  db.prepare("INSERT INTO categories (name, type, color, is_default) VALUES (?, ?, ?, 0)").run(
-    name,
-    type,
-    color
-  );
+  await db.execute({
+    sql: "INSERT INTO categories (name, type, color, is_default) VALUES (?, ?, ?, 0)",
+    args: [name, type, color],
+  });
 
   revalidatePath("/categories");
   revalidatePath("/");
@@ -142,13 +135,11 @@ export async function updateCategory(
   if (!name) return { success: false, message: "Category name is required." };
   if (!VALID_TYPES.includes(type)) return { success: false, message: "Invalid category type." };
 
-  const db = getDb();
-  db.prepare("UPDATE categories SET name = ?, type = ?, color = ? WHERE id = ?").run(
-    name,
-    type,
-    color,
-    categoryId
-  );
+  const db = await getDb();
+  await db.execute({
+    sql: "UPDATE categories SET name = ?, type = ?, color = ? WHERE id = ?",
+    args: [name, type, color, categoryId],
+  });
 
   revalidatePath("/categories");
   revalidatePath("/");
@@ -157,14 +148,18 @@ export async function updateCategory(
 }
 
 export async function deleteCategory(categoryId: number): Promise<CategoryFormResult> {
-  const db = getDb();
-  const category = db.prepare("SELECT name FROM categories WHERE id = ?").get(categoryId) as
-    | { name: string }
-    | undefined;
+  const db = await getDb();
+  const result = await db.execute({ sql: "SELECT name FROM categories WHERE id = ?", args: [categoryId] });
+  const category = toRows<{ name: string }>(result)[0];
   if (!category) return { success: false, message: "Category not found." };
 
-  db.prepare("UPDATE transactions SET category_id = NULL WHERE category_id = ?").run(categoryId);
-  db.prepare("DELETE FROM categories WHERE id = ?").run(categoryId);
+  await db.batch(
+    [
+      { sql: "UPDATE transactions SET category_id = NULL WHERE category_id = ?", args: [categoryId] },
+      { sql: "DELETE FROM categories WHERE id = ?", args: [categoryId] },
+    ],
+    "write"
+  );
 
   revalidatePath("/categories");
   revalidatePath("/");
@@ -173,9 +168,14 @@ export async function deleteCategory(categoryId: number): Promise<CategoryFormRe
 }
 
 export async function deleteStatement(statementId: number) {
-  const db = getDb();
-  db.prepare("DELETE FROM transactions WHERE statement_id = ?").run(statementId);
-  db.prepare("DELETE FROM statements WHERE id = ?").run(statementId);
+  const db = await getDb();
+  await db.batch(
+    [
+      { sql: "DELETE FROM transactions WHERE statement_id = ?", args: [statementId] },
+      { sql: "DELETE FROM statements WHERE id = ?", args: [statementId] },
+    ],
+    "write"
+  );
   revalidatePath("/");
   revalidatePath("/transactions");
   revalidatePath("/upload");
