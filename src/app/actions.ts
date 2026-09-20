@@ -213,3 +213,59 @@ export async function deleteStatement(statementId: number) {
   revalidatePath("/transactions");
   revalidatePath("/upload");
 }
+
+export interface RecategorizeResult {
+  success: boolean;
+  message: string;
+  updated: number;
+}
+
+// Re-applies the current keyword rules to every existing transaction. Useful
+// after a rules update (new categories, fixed keyword collisions, etc.) so
+// past imports benefit without re-uploading. Note: this overwrites ANY
+// existing category assignment, including ones a user picked by hand.
+export async function recategorizeAllTransactions(): Promise<RecategorizeResult> {
+  const db = await getDb();
+
+  const categoriesResult = await db.execute("SELECT id, name FROM categories");
+  const categories = toRows<{ id: number; name: string }>(categoriesResult);
+  const categoryIdByName = new Map<string, number>();
+  for (const c of categories) categoryIdByName.set(c.name, c.id);
+  const otherId = categoryIdByName.get("Other / Miscellaneous") ?? null;
+
+  const txResult = await db.execute("SELECT id, description, category_id FROM transactions");
+  const transactions = toRows<{ id: number; description: string; category_id: number | null }>(
+    txResult
+  );
+
+  const updates = transactions
+    .map((tx) => ({
+      id: tx.id,
+      currentId: tx.category_id,
+      targetId: categoryIdByName.get(guessCategory(tx.description)) ?? otherId,
+    }))
+    .filter((u) => u.targetId != null && u.targetId !== u.currentId);
+
+  if (updates.length > 0) {
+    await db.batch(
+      updates.map((u) => ({
+        sql: "UPDATE transactions SET category_id = ? WHERE id = ?",
+        args: [u.targetId, u.id],
+      })),
+      "write"
+    );
+  }
+
+  revalidatePath("/");
+  revalidatePath("/transactions");
+  revalidatePath("/budget");
+
+  return {
+    success: true,
+    message:
+      updates.length > 0
+        ? `Recategorized ${updates.length} of ${transactions.length} transaction${transactions.length === 1 ? "" : "s"}.`
+        : "Every transaction already matches the current rules — nothing to change.",
+    updated: updates.length,
+  };
+}

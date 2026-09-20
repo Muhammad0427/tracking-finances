@@ -1,6 +1,7 @@
 import { listCategories } from "@/lib/queries";
 import CategoryList from "@/components/CategoryList";
 import AddCategoryForm from "@/components/AddCategoryForm";
+import RecategorizeButton from "@/components/RecategorizeButton";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,8 @@ export default async function CategoriesPage() {
           <AddCategoryForm />
         </div>
       </section>
+
+      <RecategorizeButton />
     </div>
   );
 }
