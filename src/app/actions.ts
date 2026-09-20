@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getDb, toRows } from "@/lib/db";
 import { parseStatementCsv } from "@/lib/parseStatement";
+import { parseStatementPdf } from "@/lib/parsePdfStatement";
 import { guessCategory } from "@/lib/categories";
 
 export interface UploadResult {
@@ -15,17 +16,23 @@ export interface UploadResult {
 export async function uploadStatement(formData: FormData): Promise<UploadResult> {
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) {
-    return { success: false, message: "Please choose a CSV file to upload." };
+    return { success: false, message: "Please choose a CSV or PDF file to upload." };
   }
-  if (!file.name.toLowerCase().endsWith(".csv")) {
+
+  const fileName = file.name.toLowerCase();
+  const isCsv = fileName.endsWith(".csv");
+  const isPdf = fileName.endsWith(".pdf");
+
+  if (!isCsv && !isPdf) {
     return {
       success: false,
-      message: "Only CSV files are supported right now. Export your statement as CSV from your bank and try again.",
+      message: "Only CSV and PDF files are supported. Export your statement from your bank and try again.",
     };
   }
 
-  const text = await file.text();
-  const { transactions, skippedRows, errors } = parseStatementCsv(text);
+  const { transactions, skippedRows, errors } = isCsv
+    ? parseStatementCsv(await file.text())
+    : await parseStatementPdf(Buffer.from(await file.arrayBuffer()));
 
   if (transactions.length === 0) {
     return {
@@ -69,7 +76,7 @@ export async function uploadStatement(formData: FormData): Promise<UploadResult>
     success: true,
     message: `Imported ${transactions.length} transaction${transactions.length === 1 ? "" : "s"} from "${file.name}".${
       skippedRows > 0 ? ` Skipped ${skippedRows} row(s) that couldn't be read.` : ""
-    }`,
+    }${isPdf ? " PDF import is best-effort — double-check amounts and income/expense signs on the Transactions page." : ""}`,
     imported: transactions.length,
     skipped: skippedRows,
   };

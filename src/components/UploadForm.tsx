@@ -27,16 +27,17 @@ export default function UploadForm() {
         className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-border-hairline bg-surface px-6 py-10 text-center transition-colors hover:border-[#2a78d6]/50"
       >
         <span className="text-sm font-medium">
-          {fileName ?? "Click to choose a CSV statement"}
+          {fileName ?? "Click to choose a CSV or PDF statement"}
         </span>
         <span className="mt-1 text-xs text-text-muted">
-          Exported from your bank as CSV, with date, description, and amount columns
+          CSV (with date, description, and amount columns) is most reliable. PDF statements are
+          also supported on a best-effort basis.
         </span>
         <input
           id="file"
           name="file"
           type="file"
-          accept=".csv,text/csv"
+          accept=".csv,text/csv,.pdf,application/pdf"
           className="hidden"
           required
           onChange={(e) => setFileName(e.target.files?.[0]?.name ?? null)}

@@ -36,7 +36,7 @@ function findKey(headers: string[], candidates: string[]): string | undefined {
   return undefined;
 }
 
-function parseAmount(raw: string): number | null {
+export function parseAmount(raw: string): number | null {
   if (raw == null) return null;
   let s = String(raw).trim();
   if (s === "") return null;
@@ -52,7 +52,7 @@ function parseAmount(raw: string): number | null {
   return negative ? -Math.abs(num) : num;
 }
 
-function parseDate(raw: string): string | null {
+export function parseDate(raw: string): string | null {
   if (!raw) return null;
   const s = String(raw).trim();
   // Try YYYY-MM-DD first
