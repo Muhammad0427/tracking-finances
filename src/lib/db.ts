@@ -67,17 +67,60 @@ async function initSchema(db: Client): Promise<void> {
     await db.execute("ALTER TABLE categories ADD COLUMN notes TEXT");
   }
 
-  const result = await db.execute("SELECT COUNT(*) as count FROM categories");
-  const count = Number(result.rows[0].count);
+  await migrateCategories(db);
+}
 
-  if (count === 0) {
-    await db.batch(
-      DEFAULT_CATEGORIES.map((cat) => ({
-        sql: "INSERT INTO categories (name, type, color, is_default, monthly_budget) VALUES (?, ?, ?, 1, ?)",
-        args: [cat.name, cat.type, cat.color, cat.monthlyBudget ?? null],
-      })),
-      "write"
-    );
+// Old default category names renamed to match the current, more specific
+// naming (e.g. "Dining & Takeout" -> "Restaurants / Uber Eats"). Renaming in
+// place (rather than adding a new row) keeps the category's id, color,
+// budget, and every transaction already linked to it.
+const CATEGORY_RENAMES: Array<[oldName: string, newName: string]> = [
+  ["Dining & Takeout", "Restaurants / Uber Eats"],
+  ["Shopping", "Shopping / Online Purchases"],
+  ["Personal Care", "Hair & Maintenance"],
+  ["Health & Medical", "Health / Medical"],
+  ["Other", "Other / Miscellaneous"],
+];
+
+// Firm budget caps that should apply even to a category that already existed
+// (e.g. from before the Budget feature shipped) and hasn't had a budget set yet.
+const BUDGET_BACKFILL: Record<string, number> = {
+  Groceries: 600,
+  "Shopping / Online Purchases": 250,
+  "Hair & Maintenance": 300,
+};
+
+// Runs on every startup, on both a brand-new database and one already
+// populated from an earlier version of DEFAULT_CATEGORIES, so the category
+// list stays current without ever duplicating or clobbering user data:
+// - renames old category names in place (only if the new name doesn't
+//   already exist, so it can't collide with a category the user made)
+// - adds any category from DEFAULT_CATEGORIES that isn't present yet, by name
+// - backfills the three firm budget caps onto matching categories that don't
+//   already have a budget set (never overwrites one the user set themselves)
+async function migrateCategories(db: Client): Promise<void> {
+  for (const [oldName, newName] of CATEGORY_RENAMES) {
+    await db.execute({
+      sql: `UPDATE categories SET name = ?
+            WHERE name = ? AND NOT EXISTS (SELECT 1 FROM categories WHERE name = ?)`,
+      args: [newName, oldName, newName],
+    });
+  }
+
+  await db.batch(
+    DEFAULT_CATEGORIES.map((cat) => ({
+      sql: `INSERT INTO categories (name, type, color, is_default, monthly_budget)
+            SELECT ?, ?, ?, 1, ? WHERE NOT EXISTS (SELECT 1 FROM categories WHERE name = ?)`,
+      args: [cat.name, cat.type, cat.color, cat.monthlyBudget ?? null, cat.name],
+    })),
+    "write"
+  );
+
+  for (const [name, cap] of Object.entries(BUDGET_BACKFILL)) {
+    await db.execute({
+      sql: "UPDATE categories SET monthly_budget = ? WHERE name = ? AND monthly_budget IS NULL",
+      args: [cap, name],
+    });
   }
 }
 
