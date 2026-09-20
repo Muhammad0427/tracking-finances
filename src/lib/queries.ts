@@ -6,6 +6,8 @@ export interface Category {
   type: "income" | "essential" | "discretionary" | "giving" | "savings";
   color: string;
   is_default: number;
+  monthly_budget: number | null;
+  notes: string | null;
 }
 
 export interface Transaction {

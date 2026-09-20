@@ -40,7 +40,7 @@ export async function uploadStatement(formData: FormData): Promise<UploadResult>
   const categories = toRows<{ id: number; name: string }>(categoriesResult);
   const categoryIdByName = new Map<string, number>();
   for (const c of categories) categoryIdByName.set(c.name, c.id);
-  const otherId = categoryIdByName.get("Other") ?? null;
+  const otherId = categoryIdByName.get("Other / Miscellaneous") ?? null;
 
   const stmtInfo = await db.execute({
     sql: "INSERT INTO statements (filename, uploaded_at, transaction_count) VALUES (?, datetime('now'), ?)",
@@ -145,6 +145,32 @@ export async function updateCategory(
   revalidatePath("/");
   revalidatePath("/transactions");
   return { success: true, message: `Updated category "${name}".` };
+}
+
+export async function updateCategoryBudget(
+  categoryId: number,
+  formData: FormData
+): Promise<CategoryFormResult> {
+  const budgetRaw = String(formData.get("monthlyBudget") ?? "").trim();
+  const notesRaw = String(formData.get("notes") ?? "").trim();
+
+  let budget: number | null = null;
+  if (budgetRaw !== "") {
+    budget = Number(budgetRaw);
+    if (Number.isNaN(budget) || budget < 0) {
+      return { success: false, message: "Budget must be a positive number." };
+    }
+  }
+
+  const db = await getDb();
+  await db.execute({
+    sql: "UPDATE categories SET monthly_budget = ?, notes = ? WHERE id = ?",
+    args: [budget, notesRaw || null, categoryId],
+  });
+
+  revalidatePath("/budget");
+  revalidatePath("/");
+  return { success: true, message: "Budget updated." };
 }
 
 export async function deleteCategory(categoryId: number): Promise<CategoryFormResult> {

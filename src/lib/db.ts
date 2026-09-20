@@ -29,7 +29,9 @@ async function initSchema(db: Client): Promise<void> {
       name TEXT NOT NULL UNIQUE,
       type TEXT NOT NULL CHECK (type IN ('income', 'essential', 'discretionary', 'giving', 'savings')),
       color TEXT NOT NULL,
-      is_default INTEGER NOT NULL DEFAULT 0
+      is_default INTEGER NOT NULL DEFAULT 0,
+      monthly_budget REAL,
+      notes TEXT
     );
 
     CREATE TABLE IF NOT EXISTS statements (
@@ -55,14 +57,24 @@ async function initSchema(db: Client): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_transactions_category ON transactions(category_id);
   `);
 
+  // Safety net for a database created before monthly_budget/notes existed.
+  const columnInfo = await db.execute("PRAGMA table_info(categories)");
+  const existingColumns = new Set(toRows<{ name: string }>(columnInfo).map((c) => c.name));
+  if (!existingColumns.has("monthly_budget")) {
+    await db.execute("ALTER TABLE categories ADD COLUMN monthly_budget REAL");
+  }
+  if (!existingColumns.has("notes")) {
+    await db.execute("ALTER TABLE categories ADD COLUMN notes TEXT");
+  }
+
   const result = await db.execute("SELECT COUNT(*) as count FROM categories");
   const count = Number(result.rows[0].count);
 
   if (count === 0) {
     await db.batch(
       DEFAULT_CATEGORIES.map((cat) => ({
-        sql: "INSERT INTO categories (name, type, color, is_default) VALUES (?, ?, ?, 1)",
-        args: [cat.name, cat.type, cat.color],
+        sql: "INSERT INTO categories (name, type, color, is_default, monthly_budget) VALUES (?, ?, ?, 1, ?)",
+        args: [cat.name, cat.type, cat.color, cat.monthlyBudget ?? null],
       })),
       "write"
     );
