@@ -135,6 +135,20 @@ export function toRows<T>(result: ResultSet): T[] {
   });
 }
 
+// Splits a batch of statements into smaller groups. Turso/libsql's HTTP
+// transport has practical limits on how much a single batched request can
+// carry; a large "recategorize everything" or "import a big statement"
+// batch is exactly the kind of write that can hit that ceiling, and an
+// unhandled failure there crashes the whole page (Next.js's generic error
+// screen) rather than showing a normal in-app message.
+export function chunk<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
+
 export async function getDb(): Promise<Client> {
   if (!global.__financesDb) {
     global.__financesDb = createConnection();

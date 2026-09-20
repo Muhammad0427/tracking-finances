@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { recategorizeAllTransactions } from "@/app/actions";
+import { recategorizeAllTransactions, type RecategorizeResult } from "@/app/actions";
 
 export default function RecategorizeButton() {
-  const [message, setMessage] = useState<string | null>(null);
+  const [result, setResult] = useState<RecategorizeResult | null>(null);
   const [isPending, startTransition] = useTransition();
 
   return (
@@ -25,10 +25,9 @@ export default function RecategorizeButton() {
               "Re-categorize every transaction using the current rules? This will overwrite any manual category changes you've made."
             )
           ) {
-            setMessage(null);
+            setResult(null);
             startTransition(async () => {
-              const res = await recategorizeAllTransactions();
-              setMessage(res.message);
+              setResult(await recategorizeAllTransactions());
             });
           }
         }}
@@ -36,7 +35,15 @@ export default function RecategorizeButton() {
       >
         {isPending ? "Recategorizing…" : "Re-run on all transactions"}
       </button>
-      {message && <p className="mt-2 text-sm text-text-secondary">{message}</p>}
+      {result && (
+        <p
+          className={`mt-2 rounded-md p-2 text-sm ${
+            result.success ? "text-text-secondary" : "border border-[#d03b3b]/30 bg-[#d03b3b]/10 text-[#d03b3b]"
+          }`}
+        >
+          {result.message}
+        </p>
+      )}
     </div>
   );
 }
