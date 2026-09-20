@@ -284,16 +284,33 @@ export async function recategorizeAllTransactions(): Promise<RecategorizeResult>
         currentId: tx.category_id,
         targetId: categoryIdByName.get(guessCategory(tx.description)) ?? otherId,
       }))
-      .filter((u) => u.targetId != null && u.targetId !== u.currentId);
-
-    for (const batch of chunk(updates, BATCH_SIZE)) {
-      await db.batch(
-        batch.map((u) => ({
-          sql: "UPDATE transactions SET category_id = ? WHERE id = ?",
-          args: [u.targetId, u.id],
-        })),
-        "write"
+      .filter((u): u is { id: number; currentId: number | null; targetId: number } =>
+        u.targetId != null && u.targetId !== u.currentId
       );
+
+    // Group by target category so this is a handful of "WHERE id IN (...)"
+    // statements sent in a single round-trip, rather than one round-trip per
+    // transaction (or even one per 50) — the previous per-row approach was
+    // slow enough on a large account to risk the platform's execution timeout,
+    // which kills the function before it can return a normal error.
+    const idsByTarget = new Map<number, number[]>();
+    for (const u of updates) {
+      if (!idsByTarget.has(u.targetId)) idsByTarget.set(u.targetId, []);
+      idsByTarget.get(u.targetId)!.push(u.id);
+    }
+
+    const statements: { sql: string; args: number[] }[] = [];
+    for (const [targetId, ids] of idsByTarget) {
+      for (const idBatch of chunk(ids, 500)) {
+        statements.push({
+          sql: `UPDATE transactions SET category_id = ? WHERE id IN (${idBatch.map(() => "?").join(", ")})`,
+          args: [targetId, ...idBatch],
+        });
+      }
+    }
+
+    if (statements.length > 0) {
+      await db.batch(statements, "write");
     }
 
     revalidatePath("/");
