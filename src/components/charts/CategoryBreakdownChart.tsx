@@ -1,6 +1,6 @@
 "use client";
 
-import { Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, type PieLabelRenderProps } from "recharts";
 import { formatCurrency } from "@/lib/format";
 
 export interface CategoryDatum {
@@ -42,6 +42,42 @@ function TooltipContent({
   );
 }
 
+const RADIAN = Math.PI / 180;
+
+// Direct-labels only slices with a meaningfully large share; tiny slices would
+// overlap and are better read from the legend + tooltip instead.
+function renderSliceLabel(props: PieLabelRenderProps) {
+  const { cx, cy, midAngle, innerRadius, outerRadius, percent } = props;
+  if (
+    percent == null ||
+    percent < 0.05 ||
+    cx == null ||
+    cy == null ||
+    midAngle == null ||
+    innerRadius == null ||
+    outerRadius == null
+  ) {
+    return null;
+  }
+  const numCx = Number(cx);
+  const numCy = Number(cy);
+  const radius = Number(innerRadius) + (Number(outerRadius) - Number(innerRadius)) * 0.6 + 14;
+  const x = numCx + radius * Math.cos(-midAngle * RADIAN);
+  const y = numCy + radius * Math.sin(-midAngle * RADIAN);
+  return (
+    <text
+      x={x}
+      y={y}
+      fill="var(--text-secondary)"
+      fontSize={12}
+      textAnchor={x > numCx ? "start" : "end"}
+      dominantBaseline="central"
+    >
+      {Math.round(percent * 100)}%
+    </text>
+  );
+}
+
 export default function CategoryBreakdownChart({ data }: { data: CategoryDatum[] }) {
   const folded = foldToTop(data);
 
@@ -53,40 +89,30 @@ export default function CategoryBreakdownChart({ data }: { data: CategoryDatum[]
     );
   }
 
-  const height = Math.max(220, folded.length * 40);
-
   return (
-    <ResponsiveContainer width="100%" height={height}>
-      <BarChart data={folded} layout="vertical" margin={{ top: 4, right: 48, left: 4, bottom: 4 }}>
-        <CartesianGrid horizontal={false} stroke="var(--border-hairline)" />
-        <XAxis
-          type="number"
-          tickFormatter={(v) => formatCurrency(v)}
-          tick={{ fontSize: 12, fill: "var(--text-muted)" }}
-          axisLine={{ stroke: "var(--border-hairline)" }}
-          tickLine={false}
-        />
-        <YAxis
-          type="category"
-          dataKey="name"
-          width={140}
-          tick={{ fontSize: 12, fill: "var(--text-secondary)" }}
-          axisLine={{ stroke: "var(--border-hairline)" }}
-          tickLine={false}
-        />
-        <Tooltip content={<TooltipContent />} cursor={{ fill: "var(--surface-secondary)" }} />
-        <Bar dataKey="total" radius={[0, 4, 4, 0]} maxBarSize={22}>
+    <ResponsiveContainer width="100%" height={360}>
+      <PieChart>
+        <Pie
+          data={folded}
+          dataKey="total"
+          nameKey="name"
+          cx="50%"
+          cy="46%"
+          outerRadius={115}
+          paddingAngle={folded.length > 1 ? 2 : 0}
+          stroke="var(--surface)"
+          strokeWidth={2}
+          label={renderSliceLabel}
+          labelLine={false}
+          isAnimationActive={false}
+        >
           {folded.map((entry) => (
             <Cell key={entry.name} fill={entry.color} />
           ))}
-          <LabelList
-            dataKey="total"
-            position="right"
-            formatter={(v) => (typeof v === "number" ? formatCurrency(v) : "")}
-            style={{ fill: "var(--text-secondary)", fontSize: 12 }}
-          />
-        </Bar>
-      </BarChart>
+        </Pie>
+        <Tooltip content={<TooltipContent />} />
+        <Legend verticalAlign="bottom" height={48} wrapperStyle={{ fontSize: 12, color: "var(--text-secondary)" }} />
+      </PieChart>
     </ResponsiveContainer>
   );
 }

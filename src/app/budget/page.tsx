@@ -9,7 +9,11 @@ import SavingsTips from "@/components/SavingsTips";
 
 export const dynamic = "force-dynamic";
 
-const FEATURED_CATEGORY_NAMES = ["Zakat & Sadaqa", "Hair & Maintenance", "Sinking Fund"];
+const FEATURED_SECTIONS: { title: string; categoryNames: string[] }[] = [
+  { title: "Zakat, Hair & Sinking Fund", categoryNames: ["Zakat & Sadaqa", "Hair & Maintenance", "Sinking Fund"] },
+  { title: "Auto", categoryNames: ["Gas – Car", "Oil Changes", "Car Repairs & Maintenance"] },
+  { title: "Debt Repayment", categoryNames: ["Debt & Loan Payments"] },
+];
 
 function currentMonth(): string {
   const now = new Date();
@@ -29,10 +33,12 @@ export default async function BudgetPage(props: PageProps<"/budget">) {
   const suggestions = getBudgetSuggestions(categories);
   const savingsTips = getSavingsTips(categories);
 
-  const featured = FEATURED_CATEGORY_NAMES.map((name) => categories.find((c) => c.name === name)).filter(
-    (c) => c != null
-  );
-  const rest = categories.filter((c) => !FEATURED_CATEGORY_NAMES.includes(c.name));
+  const allFeaturedNames = new Set(FEATURED_SECTIONS.flatMap((s) => s.categoryNames));
+  const sections = FEATURED_SECTIONS.map((s) => ({
+    title: s.title,
+    categories: s.categoryNames.map((name) => categories.find((c) => c.name === name)).filter((c) => c != null),
+  })).filter((s) => s.categories.length > 0);
+  const rest = categories.filter((c) => !allFeaturedNames.has(c.name));
 
   return (
     <div className="space-y-6">
@@ -66,22 +72,29 @@ export default async function BudgetPage(props: PageProps<"/budget">) {
 
       {income && <IncomeBudgetCard income={income} />}
 
-      {featured.length > 0 && (
-        <section>
-          <h2 className="text-sm font-medium text-text-secondary">Zakat, Hair &amp; Sinking Fund</h2>
+      {sections.map((s) => (
+        <section key={s.title}>
+          <h2 className="text-sm font-medium text-text-secondary">{s.title}</h2>
           <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {featured.map((c) => (
+            {s.categories.map((c) => (
+              <BudgetCard key={c.id} category={c} />
+            ))}
+          </div>
+        </section>
+      ))}
+
+      {rest.length > 0 && (
+        <section>
+          {sections.length > 0 && (
+            <h2 className="text-sm font-medium text-text-secondary">Other categories</h2>
+          )}
+          <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {rest.map((c) => (
               <BudgetCard key={c.id} category={c} />
             ))}
           </div>
         </section>
       )}
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {rest.map((c) => (
-          <BudgetCard key={c.id} category={c} />
-        ))}
-      </div>
     </div>
   );
 }
