@@ -133,7 +133,12 @@ export default async function DashboardPage(props: PageProps<"/">) {
                 {discretionary.topDiscretionaryCategories.map((c) => (
                   <li key={c.name} className="flex items-center gap-2 text-sm">
                     <span className="h-2 w-2 rounded-full" style={{ backgroundColor: c.color }} />
-                    <span className="text-text-secondary">{c.name}</span>
+                    <Link
+                      href={`/transactions?category=${c.id ?? "uncategorized"}${selectedMonth ? `&month=${selectedMonth}` : ""}`}
+                      className="text-text-secondary hover:text-[#2a78d6] hover:underline"
+                    >
+                      {c.name}
+                    </Link>
                     <span className="ml-auto font-medium tabular-nums">{formatCurrency(c.total)}</span>
                   </li>
                 ))}

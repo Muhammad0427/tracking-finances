@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { updateCategoryBudget } from "@/app/actions";
 import { formatCurrency, formatPercent } from "@/lib/format";
 import type { CategoryBudget } from "@/lib/budget";
@@ -12,7 +13,7 @@ function barColor(pctUsed: number | null): string {
   return "#0ca30c";
 }
 
-export default function BudgetCard({ category }: { category: CategoryBudget }) {
+export default function BudgetCard({ category, month }: { category: CategoryBudget; month: string }) {
   const [editing, setEditing] = useState(false);
   const [isPending, startTransition] = useTransition();
 
@@ -117,6 +118,15 @@ export default function BudgetCard({ category }: { category: CategoryBudget }) {
             <p className="border-t border-border-hairline pt-2 text-xs text-text-secondary">
               {category.notes}
             </p>
+          )}
+
+          {category.spent > 0 && (
+            <Link
+              href={`/transactions?category=${category.id}&month=${month}`}
+              className="block text-xs text-[#2a78d6] hover:underline"
+            >
+              View transactions →
+            </Link>
           )}
         </div>
       )}

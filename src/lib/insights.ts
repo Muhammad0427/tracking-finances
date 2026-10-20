@@ -75,7 +75,7 @@ export interface DiscretionaryInsight {
   discretionaryTotal: number;
   discretionaryShare: number;
   givingTotal: number;
-  topDiscretionaryCategories: { name: string; color: string; total: number }[];
+  topDiscretionaryCategories: { id: number | null; name: string; color: string; total: number }[];
 }
 
 export async function getDiscretionaryInsight(month?: string): Promise<DiscretionaryInsight> {
@@ -83,14 +83,14 @@ export async function getDiscretionaryInsight(month?: string): Promise<Discretio
   const where = month ? "WHERE t.date LIKE ? AND t.amount < 0" : "WHERE t.amount < 0";
   const args = month ? [`${month}%`] : [];
   const result = await db.execute({
-    sql: `SELECT COALESCE(c.name,'Uncategorized') as name, COALESCE(c.color,'#9ca3af') as color,
+    sql: `SELECT c.id as id, COALESCE(c.name,'Uncategorized') as name, COALESCE(c.color,'#9ca3af') as color,
                  COALESCE(c.type,'discretionary') as type, SUM(-t.amount) as total
           FROM transactions t LEFT JOIN categories c ON c.id = t.category_id
           ${where}
           GROUP BY c.id`,
     args,
   });
-  const rows = toRows<{ name: string; color: string; type: string; total: number }>(result);
+  const rows = toRows<{ id: number | null; name: string; color: string; type: string; total: number }>(result);
 
   const totalExpenses = rows.reduce((sum, r) => sum + r.total, 0);
   const discretionaryRows = rows.filter((r) => r.type === "discretionary");
@@ -105,7 +105,7 @@ export async function getDiscretionaryInsight(month?: string): Promise<Discretio
     topDiscretionaryCategories: discretionaryRows
       .sort((a, b) => b.total - a.total)
       .slice(0, 5)
-      .map((r) => ({ name: r.name, color: r.color, total: r.total })),
+      .map((r) => ({ id: r.id, name: r.name, color: r.color, total: r.total })),
   };
 }
 
