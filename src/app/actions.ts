@@ -4,9 +4,11 @@ import { revalidatePath } from "next/cache";
 import { chunk, getDb, toRows } from "@/lib/db";
 import { parseStatementCsv } from "@/lib/parseStatement";
 import { parseStatementPdf } from "@/lib/parsePdfStatement";
+import { parseStatementImage } from "@/lib/parseImageStatement";
 import { guessCategory } from "@/lib/categories";
 
 const BATCH_SIZE = 50;
+const IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"];
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -22,23 +24,29 @@ export interface UploadResult {
 export async function uploadStatement(formData: FormData): Promise<UploadResult> {
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) {
-    return { success: false, message: "Please choose a CSV or PDF file to upload." };
+    return { success: false, message: "Please choose a file to upload." };
   }
 
   const fileName = file.name.toLowerCase();
   const isCsv = fileName.endsWith(".csv");
   const isPdf = fileName.endsWith(".pdf");
+  const isImage = IMAGE_EXTENSIONS.some((ext) => fileName.endsWith(ext));
 
-  if (!isCsv && !isPdf) {
+  if (!isCsv && !isPdf && !isImage) {
     return {
       success: false,
-      message: "Only CSV and PDF files are supported. Export your statement from your bank and try again.",
+      message: "Only CSV, PDF, and photo (JPG/PNG/etc.) files are supported.",
     };
   }
 
-  const { transactions, skippedRows, errors } = isCsv
-    ? parseStatementCsv(await file.text())
-    : await parseStatementPdf(Buffer.from(await file.arrayBuffer()));
+  let transactions, skippedRows, errors;
+  if (isCsv) {
+    ({ transactions, skippedRows, errors } = parseStatementCsv(await file.text()));
+  } else if (isPdf) {
+    ({ transactions, skippedRows, errors } = await parseStatementPdf(Buffer.from(await file.arrayBuffer())));
+  } else {
+    ({ transactions, skippedRows, errors } = await parseStatementImage(Buffer.from(await file.arrayBuffer())));
+  }
 
   if (transactions.length === 0) {
     return {
@@ -84,7 +92,15 @@ export async function uploadStatement(formData: FormData): Promise<UploadResult>
       success: true,
       message: `Imported ${transactions.length} transaction${transactions.length === 1 ? "" : "s"} from "${file.name}".${
         skippedRows > 0 ? ` Skipped ${skippedRows} row(s) that couldn't be read.` : ""
-      }${isPdf ? " PDF import is best-effort — double-check amounts and income/expense signs on the Transactions page." : ""}`,
+      }${
+        isPdf
+          ? " PDF import is best-effort — double-check amounts and income/expense signs on the Transactions page."
+          : ""
+      }${
+        isImage
+          ? " Photo import uses OCR and is the least reliable option — carefully check every amount and category on the Transactions page."
+          : ""
+      }`,
       imported: transactions.length,
       skipped: skippedRows,
     };

@@ -7,6 +7,7 @@ export default function UploadForm() {
   const formRef = useRef<HTMLFormElement>(null);
   const [result, setResult] = useState<UploadResult | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
+  const [isImage, setIsImage] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   function handleSubmit(formData: FormData) {
@@ -16,6 +17,7 @@ export default function UploadForm() {
       if (res.success) {
         formRef.current?.reset();
         setFileName(null);
+        setIsImage(false);
       }
     });
   }
@@ -27,20 +29,25 @@ export default function UploadForm() {
         className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-border-hairline bg-surface px-6 py-10 text-center transition-colors hover:border-[#2a78d6]/50"
       >
         <span className="text-sm font-medium">
-          {fileName ?? "Click to choose a CSV or PDF statement"}
+          {fileName ?? "Click to choose a CSV, PDF, or photo of a statement"}
         </span>
         <span className="mt-1 text-xs text-text-muted">
-          CSV (with date, description, and amount columns) is most reliable. PDF statements are
-          also supported on a best-effort basis.
+          CSV (with date, description, and amount columns) is most reliable. PDF and photo
+          (JPG/PNG) uploads are also supported on a best-effort basis — a photo is read with OCR
+          and is the least reliable of the three.
         </span>
         <input
           id="file"
           name="file"
           type="file"
-          accept=".csv,text/csv,.pdf,application/pdf"
+          accept=".csv,text/csv,.pdf,application/pdf,image/*"
           className="hidden"
           required
-          onChange={(e) => setFileName(e.target.files?.[0]?.name ?? null)}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            setFileName(f?.name ?? null);
+            setIsImage(!!f && f.type.startsWith("image/"));
+          }}
         />
       </label>
 
@@ -49,7 +56,7 @@ export default function UploadForm() {
         disabled={isPending}
         className="w-full rounded-md bg-[#2a78d6] px-4 py-2 text-sm font-medium text-white hover:bg-[#1c5cab] disabled:opacity-60"
       >
-        {isPending ? "Importing…" : "Import statement"}
+        {isPending ? (isImage ? "Reading photo (this can take a minute)…" : "Importing…") : "Import statement"}
       </button>
 
       {result && (

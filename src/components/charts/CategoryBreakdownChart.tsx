@@ -12,14 +12,52 @@ export interface CategoryDatum {
 const OTHER_COLOR = "#9ca3af";
 const MAX_SLICES = 7;
 
+// Vivid, high-saturation palette used only for this chart (the softer,
+// muted colors elsewhere — Budget cards, Transactions, Categories — are
+// unchanged). Assigned by a stable hash of the category name rather than
+// its sort position, so a category keeps the same bright color across
+// different months/filters instead of repainting when the ranking shifts.
+const BRIGHT_PALETTE = [
+  "#ef4444", // red
+  "#f97316", // orange
+  "#eab308", // yellow
+  "#22c55e", // green
+  "#14b8a6", // teal
+  "#3b82f6", // blue
+  "#6366f1", // indigo
+  "#a855f7", // purple
+  "#ec4899", // pink
+  "#06b6d4", // cyan
+];
+
+function hashString(s: string): number {
+  let hash = 0;
+  for (let i = 0; i < s.length; i++) {
+    hash = (hash * 31 + s.charCodeAt(i)) >>> 0;
+  }
+  return hash;
+}
+
+function brightColorFor(name: string): string {
+  return BRIGHT_PALETTE[hashString(name) % BRIGHT_PALETTE.length];
+}
+
 function foldToTop(data: CategoryDatum[]): CategoryDatum[] {
   const sorted = [...data].sort((a, b) => b.total - a.total);
-  if (sorted.length <= MAX_SLICES + 1) return sorted;
+  const limited = sorted.length <= MAX_SLICES + 1
+    ? sorted
+    : [
+        ...sorted.slice(0, MAX_SLICES),
+        {
+          name: "Other",
+          total: sorted.slice(MAX_SLICES).reduce((sum, r) => sum + r.total, 0),
+          color: OTHER_COLOR,
+        },
+      ];
 
-  const top = sorted.slice(0, MAX_SLICES);
-  const rest = sorted.slice(MAX_SLICES);
-  const otherTotal = rest.reduce((sum, r) => sum + r.total, 0);
-  return [...top, { name: "Other", total: otherTotal, color: OTHER_COLOR }];
+  // "Other" stays a muted, visually distinct gray (it's an aggregate, not a
+  // real category); every real category gets a bright color keyed to its name.
+  return limited.map((entry) => (entry.name === "Other" ? entry : { ...entry, color: brightColorFor(entry.name) }));
 }
 
 function TooltipContent({
