@@ -1,12 +1,15 @@
 import Link from "next/link";
-import { getBudgetOverview, getBudgetSuggestions } from "@/lib/budget";
+import { getBudgetOverview, getBudgetSuggestions, getSavingsTips } from "@/lib/budget";
 import { getMonthsWithData } from "@/lib/queries";
 import { formatMonthLabel } from "@/lib/format";
 import BudgetCard from "@/components/BudgetCard";
 import IncomeBudgetCard from "@/components/IncomeBudgetCard";
 import SmartSuggestions from "@/components/SmartSuggestions";
+import SavingsTips from "@/components/SavingsTips";
 
 export const dynamic = "force-dynamic";
+
+const FEATURED_CATEGORY_NAMES = ["Zakat & Sadaqa", "Hair & Maintenance", "Sinking Fund"];
 
 function currentMonth(): string {
   const now = new Date();
@@ -24,6 +27,12 @@ export default async function BudgetPage(props: PageProps<"/budget">) {
 
   const { income, categories } = await getBudgetOverview(month);
   const suggestions = getBudgetSuggestions(categories);
+  const savingsTips = getSavingsTips(categories);
+
+  const featured = FEATURED_CATEGORY_NAMES.map((name) => categories.find((c) => c.name === name)).filter(
+    (c) => c != null
+  );
+  const rest = categories.filter((c) => !FEATURED_CATEGORY_NAMES.includes(c.name));
 
   return (
     <div className="space-y-6">
@@ -53,10 +62,23 @@ export default async function BudgetPage(props: PageProps<"/budget">) {
 
       <SmartSuggestions suggestions={suggestions} />
 
+      <SavingsTips tips={savingsTips} />
+
       {income && <IncomeBudgetCard income={income} />}
 
+      {featured.length > 0 && (
+        <section>
+          <h2 className="text-sm font-medium text-text-secondary">Zakat, Hair &amp; Sinking Fund</h2>
+          <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {featured.map((c) => (
+              <BudgetCard key={c.id} category={c} />
+            ))}
+          </div>
+        </section>
+      )}
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {categories.map((c) => (
+        {rest.map((c) => (
           <BudgetCard key={c.id} category={c} />
         ))}
       </div>

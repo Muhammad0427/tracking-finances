@@ -42,6 +42,7 @@ export const DEFAULT_CATEGORIES: DefaultCategory[] = [
   { name: "Taxes", type: "essential", color: "#334155" },
   { name: "Debt & Loan Payments", type: "essential", color: "#78350f" },
   { name: "Savings & Investments", type: "savings", color: "#1d4ed8" },
+  { name: "Sinking Fund", type: "savings", color: "#155e75" },
   { name: "Quran", type: "essential", color: "#059669" },
   { name: "Zakat & Sadaqa", type: "giving", color: "#008300" },
   { name: "Insurance", type: "essential", color: "#475569" },
@@ -269,6 +270,10 @@ export const CATEGORY_KEYWORD_RULES: Array<{ category: string; keywords: string[
   {
     category: "Savings & Investments",
     keywords: ["transfer to savings", "brokerage", "401k", "fidelity", "vanguard", "robinhood", "acorns"],
+  },
+  {
+    category: "Sinking Fund",
+    keywords: ["sinking fund"],
   },
   {
     category: "Utilities",

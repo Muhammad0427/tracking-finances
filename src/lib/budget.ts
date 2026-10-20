@@ -97,7 +97,10 @@ export interface BudgetSuggestion {
 
 // Canned, category-specific cut suggestions. Generic categories without a
 // specific tip still get a suggestion, just without the tailored second half.
-const CATEGORY_TIPS: Record<string, string> = {
+// Also used standalone (see getSavingsTips) for categories with no budget set
+// at all — DTE/Detroit Water/etc. default to no limit, but still deserve
+// savings advice based on actual spend.
+const SAVINGS_TIPS: Record<string, string> = {
   Groceries: "try meal planning, store-brand swaps, or shopping sales to bring this back down",
   "Shopping / Online Purchases": "pausing non-essential online orders for the rest of the month would help",
   "Restaurants / Uber Eats": "cooking a few more meals at home this week can close the gap quickly",
@@ -107,7 +110,44 @@ const CATEGORY_TIPS: Record<string, string> = {
   "Household Supplies": "stocking up during sales instead of as-needed can reduce this",
   Entertainment: "trimming one subscription or outing this month would help offset this",
   Subscriptions: "canceling or pausing a rarely-used subscription would help offset this",
+  "DTE Energy": "running major appliances during off-peak hours, switching to LED bulbs, or asking DTE about a budget billing or efficiency program can lower this",
+  "Detroit Water": "a running toilet or dripping faucet is the most common hidden driver here — worth checking, along with shorter showers",
+  "Comcast Internet": "call and ask about a loyalty or retention discount — providers often have one they don't advertise",
+  "Metro / MetroPCS": "check whether a lower-tier data plan or an autopay discount is available",
+  "T-Mobile": "check whether a lower-tier data plan or an autopay discount is available",
+  "Oil Changes": "ask about bundle pricing, or switch to a shop with a loyalty program",
+  "Car Repairs & Maintenance": "get a second quote before approving bigger repairs, and keep up routine maintenance to avoid larger bills later",
+  "Home Repairs & Maintenance": "tackle small fixes yourself when it's safe to, and get more than one quote on larger jobs",
+  Insurance: "shop your rate every 12 months — insurers often give new customers better pricing than loyal ones",
+  Travel: "booking further ahead or traveling outside peak dates usually brings this down",
+  "Health / Medical": "ask your pharmacy or provider about a generic or cash-pay discount",
 };
+
+const MIN_SPEND_FOR_TIP = 15;
+
+export interface SavingsTip {
+  categoryName: string;
+  color: string;
+  spent: number;
+  tip: string;
+}
+
+// Independent of any budget being set — surfaces a practical tip for
+// whichever tracked categories actually have meaningful spend this month,
+// ranked by amount. This is what lets a category like DTE Energy or
+// Detroit Water (which has no limit by default) still get savings advice.
+export function getSavingsTips(categories: CategoryBudget[], limit = 6): SavingsTip[] {
+  return categories
+    .filter((c) => c.spent >= MIN_SPEND_FOR_TIP && SAVINGS_TIPS[c.name])
+    .sort((a, b) => b.spent - a.spent)
+    .slice(0, limit)
+    .map((c) => ({
+      categoryName: c.name,
+      color: c.color,
+      spent: c.spent,
+      tip: SAVINGS_TIPS[c.name],
+    }));
+}
 
 const NEAR_LIMIT_THRESHOLD = 0.85;
 
@@ -126,7 +166,7 @@ export function getBudgetSuggestions(categories: CategoryBudget[]): BudgetSugges
     const pct = c.pctUsed ?? 0;
     if (pct >= 1) {
       const overage = c.spent - (c.monthlyBudget ?? 0);
-      const tip = CATEGORY_TIPS[c.name];
+      const tip = SAVINGS_TIPS[c.name];
       const offset = withSlack.find((s) => s.name !== c.name);
       const offsetText = offset
         ? ` You have ${formatCurrency(offset.remaining ?? 0)} of slack left in ${offset.name} this month if you want to offset it there.`
